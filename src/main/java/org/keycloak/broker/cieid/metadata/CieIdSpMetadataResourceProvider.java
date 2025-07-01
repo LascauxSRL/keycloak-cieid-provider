@@ -177,9 +177,16 @@ public class CieIdSpMetadataResourceProvider implements RealmResourceProvider {
 
             if (attributeConsumingServiceName != null)
             {
-                LocalizedNameType attributeConsumingServiceNameElement = new LocalizedNameType("");
-                attributeConsumingServiceNameElement.setValue(attributeConsumingServiceName);
-                attributeConsumingService.addServiceName(attributeConsumingServiceNameElement);
+                String[] parsedName = attributeConsumingServiceName.split("\\|", 2);
+                if (parsedName.length < 2) {
+                    LocalizedNameType attributeConsumingServiceNameElement = new LocalizedNameType("");
+                    attributeConsumingServiceNameElement.setValue(attributeConsumingServiceName);
+                    attributeConsumingService.addServiceName(attributeConsumingServiceNameElement);
+                } else {
+                    LocalizedNameType attributeConsumingServiceNameElement = new LocalizedNameType(parsedName[0].trim());
+                    attributeConsumingServiceNameElement.setValue(parsedName[1].trim());
+                    attributeConsumingService.addServiceName(attributeConsumingServiceNameElement);
+                }
             }
     
             // Look for the SP descriptor and add the attribute consuming service
@@ -564,6 +571,13 @@ public class CieIdSpMetadataResourceProvider implements RealmResourceProvider {
                     countryElement.setAttributeNS(XMLNS_NS, "xmlns:cie", CIEID_METADATA_EXTENSIONS_NS);
                     countryElement.setTextContent(technicalContactCountry);
                     technicalContactPerson.getExtensions().addExtension(countryElement);
+                }
+
+                if (isSpPrivate) {
+                    // Private qualifier
+                    Element spTypeElement = doc.createElementNS(CIEID_METADATA_EXTENSIONS_NS, "cie:Private");
+                    spTypeElement.setAttributeNS(XMLNS_NS, "xmlns:cie", CIEID_METADATA_EXTENSIONS_NS);
+                    technicalContactPerson.getExtensions().addExtension(spTypeElement);
                 }
 
                 entityDescriptor.addContactPerson(technicalContactPerson);
