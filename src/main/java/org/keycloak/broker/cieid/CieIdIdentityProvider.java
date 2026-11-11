@@ -46,6 +46,7 @@ import org.keycloak.models.IdentityProviderMapperModel;
 import org.keycloak.models.KeyManager;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
+import org.keycloak.models.UserModel;
 import org.keycloak.models.UserSessionModel;
 import org.keycloak.protocol.oidc.OIDCLoginProtocol;
 import org.keycloak.protocol.saml.JaxrsSAML2BindingBuilder;
@@ -276,6 +277,12 @@ public class CieIdIdentityProvider extends AbstractIdentityProvider<CieIdIdentit
     @Override
     public Response retrieveToken(KeycloakSession session, FederatedIdentityModel identity) {
         return Response.ok(identity.getToken()).build();
+    }
+
+    @Override
+    public Response retrieveToken(KeycloakSession session, FederatedIdentityModel identity, UserSessionModel userSession, UserModel user) {
+        // Keycloak 26.8+: new abstract signature; keep the previous behaviour (token stored in the federated identity)
+        return retrieveToken(session, identity);
     }
 
     @Override

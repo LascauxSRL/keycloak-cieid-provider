@@ -21,7 +21,7 @@ import org.jboss.logging.Logger;
 
 import org.keycloak.broker.provider.BrokeredIdentityContext;
 import org.keycloak.broker.provider.IdentityBrokerException;
-import org.keycloak.broker.provider.IdentityProvider;
+import org.keycloak.broker.provider.UserAuthenticationIdentityProvider;
 import org.keycloak.common.ClientConnection;
 import org.keycloak.common.VerificationException;
 import org.keycloak.dom.saml.v2.assertion.AssertionType;
@@ -148,7 +148,7 @@ public class CieIdSAMLEndpoint {
     protected RealmModel realm;
     protected EventBuilder event;
     protected CieIdIdentityProviderConfig config;
-    protected IdentityProvider.AuthenticationCallback callback;
+    protected UserAuthenticationIdentityProvider.AuthenticationCallback callback;
     protected CieIdIdentityProvider provider;
     private final DestinationValidator destinationValidator;
     // iso8601 fully compliant regex
@@ -166,7 +166,7 @@ public class CieIdSAMLEndpoint {
     private HttpHeaders headers;
 
 
-    public CieIdSAMLEndpoint(KeycloakSession session, CieIdIdentityProvider provider, CieIdIdentityProviderConfig config, IdentityProvider.AuthenticationCallback callback, DestinationValidator destinationValidator) {
+    public CieIdSAMLEndpoint(KeycloakSession session, CieIdIdentityProvider provider, CieIdIdentityProviderConfig config, UserAuthenticationIdentityProvider.AuthenticationCallback callback, DestinationValidator destinationValidator) {
         this.realm = session.getContext().getRealm();
         this.config = config;
         this.callback = callback;
@@ -256,7 +256,11 @@ public class CieIdSAMLEndpoint {
 
         protected abstract String getBindingType();
         protected abstract boolean containsUnencryptedSignature(SAMLDocumentHolder documentHolder);
-        protected abstract void verifySignature(String key, SAMLDocumentHolder documentHolder) throws VerificationException;
+        /**
+         * @param message the SAML message being processed (as received)
+         * @param relayState the relay state being processed
+         */
+        protected abstract void verifySignature(String key, SAMLDocumentHolder documentHolder, String message, String relayState) throws VerificationException;
         protected abstract SAMLDocumentHolder extractRequestDocument(String samlRequest);
         protected abstract SAMLDocumentHolder extractResponseDocument(String response);
 
@@ -310,7 +314,7 @@ public class CieIdSAMLEndpoint {
             }
             if (config.isValidateSignature()) {
                 try {
-                    verifySignature(GeneralConstants.SAML_REQUEST_KEY, holder);
+                    verifySignature(GeneralConstants.SAML_REQUEST_KEY, holder, samlRequest, relayState);
                 } catch (VerificationException e) {
                     logger.error("validation failed", e);
                     event.event(EventType.IDENTITY_PROVIDER_RESPONSE);
@@ -669,7 +673,7 @@ public class CieIdSAMLEndpoint {
             }
             if (config.isValidateSignature()) {
                 try {
-                    verifySignature(GeneralConstants.SAML_RESPONSE_KEY, holder);
+                    verifySignature(GeneralConstants.SAML_RESPONSE_KEY, holder, samlResponse, relayState);
                 } catch (VerificationException e) {
                     logger.error("validation failed", e);
                     event.event(EventType.IDENTITY_PROVIDER_RESPONSE);
@@ -727,7 +731,7 @@ public class CieIdSAMLEndpoint {
         }
 
         @Override
-        protected void verifySignature(String key, SAMLDocumentHolder documentHolder) throws VerificationException {
+        protected void verifySignature(String key, SAMLDocumentHolder documentHolder, String message, String relayState) throws VerificationException {
             if ((! containsUnencryptedSignature(documentHolder)) && (documentHolder.getSamlObject() instanceof ResponseType)) {
                 ResponseType responseType = (ResponseType) documentHolder.getSamlObject();
                 List<ResponseType.RTChoiceType> assertions = responseType.getAssertions();
@@ -758,6 +762,24 @@ public class CieIdSAMLEndpoint {
 
     protected class RedirectBinding extends Binding {
         @Override
+        protected Response basicChecks(String samlRequest, String samlResponse) {
+            Response response = super.basicChecks(samlRequest, samlResponse);
+            if (response != null) {
+                return response;
+            }
+            // CVE-2026-117691: reject repeated (e.g. percent-encoded duplicate) SAML redirect parameters
+            try {
+                SamlProtocolUtils.rejectRepeatedRedirectParameters(session.getContext().getUri().getQueryParameters(false));
+            } catch (VerificationException e) {
+                logger.debug("Invalid SAML redirect parameters", e);
+                event.event(EventType.IDENTITY_PROVIDER_RESPONSE);
+                event.error(Errors.INVALID_REQUEST);
+                return ErrorPage.error(session, null, Response.Status.BAD_REQUEST, Messages.INVALID_REQUEST);
+            }
+            return null;
+        }
+
+        @Override
         protected boolean containsUnencryptedSignature(SAMLDocumentHolder documentHolder) {
             MultivaluedMap<String, String> encodedParams = session.getContext().getUri().getQueryParameters(false);
             String algorithm = encodedParams.getFirst(GeneralConstants.SAML_SIG_ALG_REQUEST_KEY);
@@ -766,9 +788,10 @@ public class CieIdSAMLEndpoint {
         }
 
         @Override
-        protected void verifySignature(String key, SAMLDocumentHolder documentHolder) throws VerificationException {
+        protected void verifySignature(String key, SAMLDocumentHolder documentHolder, String message, String relayState) throws VerificationException {
             KeyLocator locator = getIDPKeyLocator();
-            SamlProtocolUtils.verifyRedirectSignature(documentHolder, locator, session.getContext().getUri(), key);
+            // CVE-2026-117691: also verify that the signed message/relayState are the ones actually being processed
+            SamlProtocolUtils.verifyRedirectSignature(documentHolder, locator, session.getContext().getUri(), key, message, relayState);
         }
 
 
