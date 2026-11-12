@@ -123,6 +123,12 @@ public class CieIdSpMetadataResourceProvider implements RealmResourceProvider {
                 authnBinding = JBossSAMLURIConstants.SAML_HTTP_POST_BINDING.getUri();
             }
 
+            // ACS binding = binding used by the IdP to send the Response (ProtocolBinding in AuthnRequest),
+            // not the one used to send the AuthnRequest. CIE requires HTTP-POST.
+            URI acsBinding = firstCieIdProvider.getConfig().isPostBindingResponse()
+                    ? JBossSAMLURIConstants.SAML_HTTP_POST_BINDING.getUri()
+                    : JBossSAMLURIConstants.SAML_HTTP_REDIRECT_BINDING.getUri();
+
             URI endpoint = uriInfo.getBaseUriBuilder()
                     .path("realms").path(realm.getName())
                     .path("broker")
@@ -167,7 +173,7 @@ public class CieIdSpMetadataResourceProvider implements RealmResourceProvider {
             SAMLMetadataWriter metadataWriter = new SAMLMetadataWriter(writer);
 
             EntityDescriptorType entityDescriptor = SPMetadataDescriptor.buildSPDescriptor(
-                authnBinding, authnBinding, endpoint, endpoint,
+                acsBinding, authnBinding, endpoint, endpoint,
                 wantAuthnRequestsSigned, wantAssertionsSigned, wantAssertionsEncrypted,
                 entityId, nameIDPolicyFormat, signingKeys, encryptionKeys);
 
@@ -284,7 +290,7 @@ public class CieIdSpMetadataResourceProvider implements RealmResourceProvider {
                         
                         if (spDescriptor != null) {
                             customizeSpDescriptor(spDescriptor,
-                                authnBinding, authnBinding,
+                                acsBinding, authnBinding,
                                 assertionEndpoints, logoutEndpoints);
                         }
                     }
